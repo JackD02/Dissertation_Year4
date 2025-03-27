@@ -1,22 +1,83 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.preprocessing import LabelEncoder
 
+### FILE LOCATIONS FOR EACH EXPERIMENT
+# PIEZO CHAIR EXP ("C:\UNI\Y4\Dissertation\D2 Deliverable\Data for Diss\Piezo Chair Experiment\PC_Combined.csv")
+# PIEZO BED EXP ("C:\UNI\Y4\Dissertation\D2 Deliverable\Data for Diss\Piezo Bed Experiment\PBTCombined.csv")
+# PIEZO + FLEX BED EXP ("C:\UNI\Y4\Dissertation\D2 Deliverable\Data for Diss\Flex Bed Experiment\FTB_Combined.csv")
+# RANGEFINDER BED EXP ("C:\UNI\Y4\Dissertation\D2 Deliverable\Data for Diss\Rangefinder Bed Experiment\RBT_Combined.csv")
+# FULL ARRAY TESTING ("C:\UNI\Y4\Dissertation\D2 Deliverable\Data for Diss\Full array data\FAT_Combined.csv")
 
-data = pd.read_csv("sensor_data.csv")
+data = pd.read_csv(r"C:\UNI\Y4\Dissertation\D2 Deliverable\Data for Diss\5 Full array data\FAT_Combined.csv")
+external_set = pd.read_csv(r"C:\UNI\Y4\Dissertation\D2 Deliverable\Data for Diss\5 Full array data\FAT3.CSV", encoding='ISO-8859-1')
 
-X = data.drop(columns=["label"]) #sensor values
-Y = data["label"] #lying, moving position etc
+encoder = LabelEncoder()
+encoder.fit(pd.concat([data[" Label"], external_set[" Label"]])) #encode label data into integer values
 
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+#timestamp values have no value in the ML aspect of this
+X = data[[" Piezo Value Left", " Piezo Value Right", " Flex Value Middle"," rf Distance left", " rf Distance right"]] #keep only sensor values
+Y = encoder.transform(data[" Label"]) #left, right, middle
 
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2) #80% training data, 20% testing data
 
-clf = RandomForestClassifier(n_estimators=100, random_state=42)
+#run random forest with certain constraints, 100 estimators seems to work the best opposed to 50 or 200,
+#max depth for any tree has been set to 5, this avoids overfitting and the system just learning the exact data rather than patterns
+clf = RandomForestClassifier(n_estimators=100,max_depth = 5) 
 clf.fit(X_train, Y_train)
 
-acc = clf.score(X_test, Y_test)
-print(f"Model Accuracy: {acc:.2f}")
+#Make prediction
+Y_pred = clf.predict(X_test)
+
+#get prediction labels and un-encode them (back to their string values)
+Y_pred_labels = encoder.inverse_transform(Y_pred).astype(str)
+Y_test_labels = encoder.inverse_transform(Y_test).astype(str)
+
+#Model Accuracy
+accuracy = accuracy_score(Y_test, Y_pred)
+print(f"\nModel Accuracy: {accuracy:.2f}")
+
+#confusion matrix checking for true positives/false negatives etc...
+print("\nConfusion Matrix: ")
+print(confusion_matrix(Y_test_labels, Y_pred_labels))
+
+#classification report showing precision, recall, f1-score and support...
+print("\nClassification Report: ")
+print(classification_report(Y_test_labels, Y_pred_labels, zero_division=1))
+
+#checking feature importance (which input columns are most important)
+importances = clf.feature_importances_
+print("\nImportances: ")
+for i, feature in enumerate([" Piezo Value Left", " Piezo Value Right", " Flex Value Middle"," rf Distance left", " rf Distance right"]):
+    print(f"{feature}: {importances[i]:.4f}")
+
+### EXTERNAL SET
+# Preprocess external data (apply the same preprocessing as the training data)
+external_X = external_set[[" Piezo Value Left", " Piezo Value Right", " Flex Value Middle"," rf Distance left", " rf Distance right"]]
+external_Y = encoder.transform(external_set[" Label"])
+
+# Make predictions on the external validation data
+external_Y_pred = clf.predict(external_X)
+
+# Convert predictions back to string labels
+# without this errors will occure (labels containing mix of data types)
+external_Y_labels = encoder.inverse_transform(external_Y)
+external_Y_pred_labels = encoder.inverse_transform(external_Y_pred)
+
+# Evaluate on the external validation set
+external_accuracy = clf.score(external_X, external_Y)
+print(f"\nExternal Validation Accuracy: {external_accuracy:.2f}")
+
+# Print the classification report on external validation set
+external_Y_pred = external_Y_pred.astype(str)
+
+#classification report showing precision, recall, f1-score and support...
+print("\nClassification Report for External Validation Set: ")
+print(classification_report(external_Y_labels, external_Y_pred_labels, labels= encoder.classes_, zero_division=1))
+
+# Confusion Matrix for External Data
+print("\nConfusion Matrix for External Validation Set: ")
+print(confusion_matrix(external_Y_labels, external_Y_pred_labels))
+
